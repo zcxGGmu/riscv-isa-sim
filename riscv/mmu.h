@@ -290,7 +290,7 @@ public:
     return have_reservation;
   }
 
-  static const reg_t ICACHE_ENTRIES = 1024;
+  static const reg_t ICACHE_ENTRIES = 8192;
 
   inline size_t icache_index(reg_t addr)
   {
@@ -344,6 +344,7 @@ public:
     icache_entry_t* entry = &icache[icache_index(addr)];
     if (likely(entry->tag == addr))
       return entry;
+
     return refill_icache(addr, entry);
   }
 

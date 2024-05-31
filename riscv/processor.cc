@@ -1066,6 +1066,12 @@ reg_t processor_t::get_csr(int which, insn_t insn, bool write, bool peek)
   throw trap_illegal_instruction(insn.bits());
 }
 
+const insn_desc_t insn_desc_t::illegal_instruction = {
+  0, 0,
+  &::illegal_instruction, &::illegal_instruction, &::illegal_instruction, &::illegal_instruction,
+  &::illegal_instruction, &::illegal_instruction, &::illegal_instruction, &::illegal_instruction
+};
+
 reg_t illegal_instruction(processor_t UNUSED *p, insn_t insn, reg_t UNUSED pc)
 {
   // The illegal instruction can be longer than ILEN bits, where the tval will
@@ -1074,23 +1080,8 @@ reg_t illegal_instruction(processor_t UNUSED *p, insn_t insn, reg_t UNUSED pc)
   throw trap_illegal_instruction(insn.bits() & 0xffffffffULL);
 }
 
-static insn_desc_t
-propagate_instruction_in_vector(std::vector<insn_desc_t> &instructions,
-                                std::vector<insn_desc_t>::iterator it) {
-  assert(it != instructions.end());
-  insn_desc_t desc = *it;
-  if (false && it->mask != 0 && it != instructions.begin() &&
-      std::next(it) != instructions.end()) {
-    if (it->match != std::prev(it)->match &&
-        it->match != std::next(it)->match) {
-      // move to front of opcode list to reduce miss penalty
-      while (--it >= instructions.begin())
-        *std::next(it) = *it;
-      instructions[0] = desc;
-    }
-  }
-  return desc;
-}
+static long hits;
+static long accesses;
 
 insn_func_t processor_t::decode_insn(insn_t insn)
 {
@@ -1100,6 +1091,11 @@ insn_func_t processor_t::decode_insn(insn_t insn)
 
   bool rve = extension_enabled('E');
 
+  hits += hit;
+  accesses++;
+  if (accesses % 1000000 == 0)
+    printf("h %ld a %ld r %f\n", hits, accesses, 100.0 - 100.0 *  hits / accesses);
+
   if (unlikely(!hit)) {
     // fall back to linear search
     auto matching = [insn_bits = insn.bits()](const insn_desc_t &d) {
@@ -1107,17 +1103,15 @@ insn_func_t processor_t::decode_insn(insn_t insn)
     };
     auto p = std::find_if(custom_instructions.begin(),
                           custom_instructions.end(), matching);
-    if (p != custom_instructions.end()) {
-      desc = propagate_instruction_in_vector(custom_instructions, p);
-    } else {
+    if (p == custom_instructions.end()) {
       p = std::find_if(instructions.begin(), instructions.end(), matching);
       assert(p != instructions.end());
-      desc = propagate_instruction_in_vector(instructions, p);
     }
+    desc = &*p;
     opcode_cache[idx].replace(insn.bits(), desc);
   }
 
-  return desc.func(xlen, rve, log_commits_enabled);
+  return desc->func(xlen, rve, log_commits_enabled);
 }
 
 void processor_t::register_insn(insn_desc_t desc, bool is_custom) {
@@ -1132,16 +1126,6 @@ void processor_t::register_insn(insn_desc_t desc, bool is_custom) {
 
 void processor_t::build_opcode_map()
 {
-  struct cmp {
-    bool operator()(const insn_desc_t& lhs, const insn_desc_t& rhs) {
-      return lhs.match > rhs.match;
-    }
-  };
-
-  // use stable sort to preserve relative order of overlap list
-  std::stable_sort(instructions.begin(), instructions.end(), cmp());
-  std::stable_sort(custom_instructions.begin(), custom_instructions.end(), cmp());
-
   for (size_t i = 0; i < OPCODE_CACHE_SIZE; i++)
     opcode_cache[i].reset();
 }
@@ -1219,7 +1203,7 @@ void processor_t::register_base_instructions()
   #undef DEFINE_INSN
 
   // terminate instruction list with a catch-all
-  register_base_insn(insn_desc_t::illegal());
+  register_base_insn(insn_desc_t::illegal_instruction);
 
   build_opcode_map();
 }
