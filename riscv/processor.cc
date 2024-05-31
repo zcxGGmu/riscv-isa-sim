@@ -1079,7 +1079,7 @@ propagate_instruction_in_vector(std::vector<insn_desc_t> &instructions,
                                 std::vector<insn_desc_t>::iterator it) {
   assert(it != instructions.end());
   insn_desc_t desc = *it;
-  if (it->mask != 0 && it != instructions.begin() &&
+  if (false && it->mask != 0 && it != instructions.begin() &&
       std::next(it) != instructions.end()) {
     if (it->match != std::prev(it)->match &&
         it->match != std::next(it)->match) {
@@ -1096,11 +1096,11 @@ insn_func_t processor_t::decode_insn(insn_t insn)
 {
   // look up opcode in hash table
   size_t idx = insn.bits() % OPCODE_CACHE_SIZE;
-  insn_desc_t desc = opcode_cache[idx];
+  auto [hit, desc] = opcode_cache[idx].lookup(insn.bits());
 
   bool rve = extension_enabled('E');
 
-  if (unlikely(insn.bits() != desc.match)) {
+  if (unlikely(!hit)) {
     // fall back to linear search
     auto matching = [insn_bits = insn.bits()](const insn_desc_t &d) {
       return (insn_bits & d.mask) == d.match;
@@ -1114,8 +1114,7 @@ insn_func_t processor_t::decode_insn(insn_t insn)
       assert(p != instructions.end());
       desc = propagate_instruction_in_vector(instructions, p);
     }
-    opcode_cache[idx] = desc;
-    opcode_cache[idx].match = insn.bits();
+    opcode_cache[idx].replace(insn.bits(), desc);
   }
 
   return desc.func(xlen, rve, log_commits_enabled);
@@ -1144,7 +1143,7 @@ void processor_t::build_opcode_map()
   std::stable_sort(custom_instructions.begin(), custom_instructions.end(), cmp());
 
   for (size_t i = 0; i < OPCODE_CACHE_SIZE; i++)
-    opcode_cache[i] = insn_desc_t::illegal();
+    opcode_cache[i].reset();
 }
 
 void processor_t::register_extension(extension_t *x) {

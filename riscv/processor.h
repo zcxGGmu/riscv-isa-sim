@@ -195,6 +195,47 @@ struct state_t
   elp_t elp;
 };
 
+class opcode_cache_entry_t {
+ public:
+  opcode_cache_entry_t()
+  {
+    reset();
+  }
+
+  void reset()
+  {
+    for (size_t i = 0; i < associativity; i++) {
+      tag[i] = 0;
+      contents[i] = insn_desc_t::illegal();
+    }
+  }
+
+  void replace(insn_bits_t opcode, insn_desc_t desc)
+  {
+    for (size_t i = associativity - 1; i > 0; i--) {
+      tag[i] = tag[i-1];
+      contents[i] = contents[i-1];
+    }
+
+    tag[0] = opcode;
+    contents[0] = desc;
+  }
+
+  std::tuple<bool, insn_desc_t> lookup(insn_bits_t opcode)
+  {
+    for (size_t i = 0; i < associativity; i++)
+      if (tag[i] == opcode)
+        return std::tuple(true, contents[i]);
+
+    return std::tuple(false, contents[0]);
+  }
+
+ private:
+  static const size_t associativity = 2;
+  insn_bits_t tag[associativity];
+  insn_desc_t contents[associativity];
+};
+
 // this class represents one processor in a RISC-V machine.
 class processor_t : public abstract_device_t
 {
@@ -351,7 +392,7 @@ private:
   std::unordered_map<reg_t,uint64_t> pc_histogram;
 
   static const size_t OPCODE_CACHE_SIZE = 8191;
-  insn_desc_t opcode_cache[OPCODE_CACHE_SIZE];
+  opcode_cache_entry_t opcode_cache[OPCODE_CACHE_SIZE];
 
   void take_pending_interrupt() { take_interrupt(state.mip->read() & state.mie->read()); }
   void take_interrupt(reg_t mask); // take first enabled interrupt in mask
